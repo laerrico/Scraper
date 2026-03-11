@@ -18,15 +18,12 @@ app.get('/get-stream', async (req, res) => {
         const page = await browser.newPage();
         let rawVideoLink = null;
 
-        // Catch broader stream patterns
         page.on('request', request => {
             const url = request.url();
-            // Look for m3u8, fragments, or the specific provider domain you saw
-            if (url.includes('.m3u8') || url.includes('sanwalyaarpya.com') || url.includes('stream')) {
-                if (!rawVideoLink) {
-                    rawVideoLink = url;
-                    console.log("4. FOUND POTENTIAL LINK:", rawVideoLink);
-                }
+            // IGNORE the embed page itself, look for the actual video files
+            if ((url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) && !url.includes('streamapi.cc')) {
+                rawVideoLink = url;
+                console.log("4. REAL VIDEO LINK FOUND:", rawVideoLink);
             }
         });
 
@@ -37,18 +34,17 @@ app.get('/get-stream', async (req, res) => {
             document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px;"></iframe>`;
         }, embedUrl);
 
-        await new Promise(r => setTimeout(r, 4000)); 
+        // Give the spinner time to load the player
+        await new Promise(r => setTimeout(r, 6000)); 
 
         console.log("5. Clicking Play...");
-        // Click center, then slightly off-center to clear multiple ad layers
-        const clicks = [[400, 300], [410, 310], [390, 290]];
-        for (const [x, y] of clicks) {
-            await page.mouse.click(x, y);
-            await new Promise(r => setTimeout(r, 2000));
-        }
+        // Click multiple spots to clear ads
+        await page.mouse.click(400, 300);
+        await new Promise(r => setTimeout(r, 2000));
+        await page.mouse.click(400, 300);
         
-        // Final wait to ensure the stream starts
-        await new Promise(r => setTimeout(r, 4000)); 
+        // Wait for the stream to actually start
+        await new Promise(r => setTimeout(r, 8000)); 
         await browser.close();
         
         res.json({ success: !!rawVideoLink, url: rawVideoLink });
