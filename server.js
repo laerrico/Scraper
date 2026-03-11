@@ -6,11 +6,12 @@ const axios = require('axios');
 const app = express();
 app.use(cors());
 
+// --- SCRAPER ROUTE ---
 app.get('/get-stream', async (req, res) => {
     const embedUrl = req.query.url;
     if (!embedUrl) return res.status(400).json({ error: 'No URL' });
 
-    console.log("1. Scraping:", embedUrl);
+    console.log("1. Scraping Request:", embedUrl);
     let browser;
     try {
         browser = await puppeteer.launch({ 
@@ -50,25 +51,28 @@ app.get('/get-stream', async (req, res) => {
     }
 });
 
+// --- ENHANCED PROXY ROUTE ---
 app.get('/proxy', async (req, res) => {
     const streamUrl = req.query.url;
     if (!streamUrl) return res.status(400).send('No URL');
 
     try {
+        const isManifest = streamUrl.includes('.m3u8');
         const response = await axios.get(streamUrl, {
-            responseType: streamUrl.includes('.m3u8') ? 'text' : 'stream',
+            responseType: isManifest ? 'text' : 'stream',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Referer': 'https://embed.streamapi.cc/',
                 'Origin': 'https://embed.streamapi.cc',
-                'X-Requested-With': 'XMLHttpRequest' // Many providers look for this to allow the request
+                'Accept': '*/*',
+                'Connection': 'keep-alive'
             },
-            timeout: 10000
+            timeout: 12000
         });
 
         res.set('Access-Control-Allow-Origin', '*');
 
-        if (streamUrl.includes('.m3u8')) {
+        if (isManifest) {
             let manifest = response.data;
             const baseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/') + 1);
             const rewrittenManifest = manifest.replace(/^(?!#)(.*)$/gm, (match) => {
@@ -82,7 +86,7 @@ app.get('/proxy', async (req, res) => {
 
         response.data.pipe(res);
     } catch (e) {
-        console.error("403 Final Block:", streamUrl);
+        console.error("403 Final Block - Server IP is likely Blacklisted.");
         res.status(403).send('Blocked');
     }
 });
