@@ -20,10 +20,12 @@ app.get('/get-stream', async (req, res) => {
 
         page.on('request', request => {
             const url = request.url();
-            // IGNORE the embed page itself, look for the actual video files
-            if ((url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) && !url.includes('streamapi.cc')) {
-                rawVideoLink = url;
-                console.log("4. REAL VIDEO LINK FOUND:", rawVideoLink);
+            // Listen for the m3u8 or the specific provider domain
+            if (url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) {
+                if (!url.includes('streamapi.cc')) { // Ignore the wrapper
+                    rawVideoLink = url;
+                    console.log("4. REAL VIDEO LINK FOUND:", rawVideoLink);
+                }
             }
         });
 
@@ -31,20 +33,24 @@ app.get('/get-stream', async (req, res) => {
         
         console.log("3. Injecting Iframe...");
         await page.evaluate((url) => {
-            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px;"></iframe>`;
+            document.body.innerHTML = `<iframe id="stream-frame" src="${url}" style="width:800px; height:600px;"></iframe>`;
         }, embedUrl);
 
-        // Give the spinner time to load the player
-        await new Promise(r => setTimeout(r, 6000)); 
+        // Wait for the iframe to appear
+        await page.waitForSelector('#stream-frame');
+        const frameElement = await page.$('#stream-frame');
+        const frame = await frameElement.contentFrame();
 
-        console.log("5. Clicking Play...");
-        // Click multiple spots to clear ads
-        await page.mouse.click(400, 300);
+        console.log("5. Waiting for player and clicking INSIDE iframe...");
+        await new Promise(r => setTimeout(r, 5000)); 
+
+        // We click the frame's coordinates, not the page's
+        await frame.mouse.click(400, 300); 
         await new Promise(r => setTimeout(r, 2000));
-        await page.mouse.click(400, 300);
+        await frame.mouse.click(400, 300);
         
-        // Wait for the stream to actually start
-        await new Promise(r => setTimeout(r, 8000)); 
+        // Give it 10 seconds to fire off the network request
+        await new Promise(r => setTimeout(r, 10000)); 
         await browser.close();
         
         res.json({ success: !!rawVideoLink, url: rawVideoLink });
