@@ -9,22 +9,25 @@ app.get('/get-stream', async (req, res) => {
     const embedUrl = req.query.url;
     if (!embedUrl) return res.status(400).json({ error: 'No URL provided' });
 
-    console.log("1. Request received");
+    console.log("1. Request received for:", embedUrl);
 
     try {
         console.log("2. Launching browser...");
         const browser = await puppeteer.launch({ 
             headless: 'new', 
-            // This flag hides the fact that it is a robot
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'] 
         });
         
         const page = await browser.newPage();
-        
-        // FAKE BEING A REAL WINDOWS COMPUTER
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.setViewport({ width: 800, height: 600 });
         
+        // THE MAGIC FIX: Fake the website we "came from"
+        await page.setExtraHTTPHeaders({ 
+            'Referer': 'https://google.com/',
+            'Origin': 'https://google.com/'
+        });
+
         let rawVideoLink = null;
 
         page.on('request', request => {
@@ -36,14 +39,10 @@ app.get('/get-stream', async (req, res) => {
 
         console.log("5. Navigating to embed URL...");
         await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await new Promise(r => setTimeout(r, 3000)); 
         
+        await new Promise(r => setTimeout(r, 3000)); 
         console.log("Page Title is:", await page.title());
         
-        // PEEK AT THE ACTUAL WEBSITE CODE
-        const html = await page.content();
-        console.log("HTML Snippet:", html.substring(0, 150));
-
         console.log("6. Spamming clicks...");
         for (let i = 0; i < 3; i++) {
             await page.mouse.click(400, 300);
@@ -51,6 +50,7 @@ app.get('/get-stream', async (req, res) => {
         }
         
         await new Promise(r => setTimeout(r, 6000)); 
+        
         console.log("7. Closing browser...");
         await browser.close();
         
