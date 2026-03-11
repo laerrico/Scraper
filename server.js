@@ -34,49 +34,57 @@ app.get('/get-stream', async (req, res) => {
             document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px;"></iframe>`;
         }, embedUrl);
 
-        await new Promise(r => setTimeout(r, 5000)); 
-        await page.mouse.click(400, 300); // Trigger clicks
+        await new Promise(r => setTimeout(r, 6000)); 
+        await page.mouse.click(400, 300); 
         
         setTimeout(async () => { 
             if (browser) await browser.close(); 
-            if (!rawVideoLink) res.json({ success: false });
+            if (!rawVideoLink && !res.headersSent) res.json({ success: false });
         }, 15000);
     } catch (e) {
         if (browser) await browser.close();
-        res.status(500).json({ success: false });
+        if (!res.headersSent) res.status(500).json({ success: false });
     }
 });
 
-// --- SMART PROXY ROUTE ---
+// --- THE SMART RECURSIVE PROXY ---
 app.get('/proxy', async (req, res) => {
     const streamUrl = req.query.url;
     if (!streamUrl) return res.status(400).send('No URL');
 
     try {
         const response = await axios.get(streamUrl, {
+            responseType: streamUrl.includes('.m3u8') ? 'text' : 'stream',
             headers: { 
                 'Referer': 'https://embed.streamapi.cc/',
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         });
 
-        let data = response.data;
+        res.set('Access-Control-Allow-Origin', '*');
 
-        // If it's a playlist file, rewrite URLs to route through this proxy
-        if (typeof data === 'string' && data.includes('#EXTM3U')) {
+        // If it's a playlist (.m3u8), we need to REWRITE it
+        if (streamUrl.includes('.m3u8')) {
+            let manifest = response.data;
             const baseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/') + 1);
-            
-            // Rewrite relative links to absolute links through our proxy
-            data = data.replace(/^(?!http|#)(.*)$/gm, (match) => {
-                const absoluteUrl = match.startsWith('/') ? new URL(match, streamUrl).href : baseUrl + match;
+
+            // This regex finds every link in the manifest and wraps it in our proxy
+            const rewrittenManifest = manifest.replace(/^(?!#)(.*)$/gm, (match) => {
+                if (!match.trim()) return match;
+                let absoluteUrl = match.startsWith('http') ? match : new URL(match, baseUrl).href;
                 return `${req.protocol}://${req.get('host')}/proxy?url=${encodeURIComponent(absoluteUrl)}`;
             });
+
+            res.set('Content-Type', 'application/vnd.apple.mpegurl');
+            return res.send(rewrittenManifest);
         }
 
-        res.set('Access-Control-Allow-Origin', '*');
-        res.set('Content-Type', streamUrl.includes('m3u8') ? 'application/vnd.apple.mpegurl' : 'video/MP2T');
-        res.send(data);
+        // If it's a video segment (.ts), just pipe the data
+        res.set('Content-Type', 'video/MP2T');
+        response.data.pipe(res);
+
     } catch (e) {
+        console.error("Proxy Error:", e.message);
         res.status(500).send('Proxy Error');
     }
 });
