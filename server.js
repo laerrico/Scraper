@@ -7,10 +7,10 @@ const app = express();
 app.use(cors());
 
 app.get('/get-stream', async (req, res) => {
-    console.log("--- New Scraping Request ---");
     const embedUrl = req.query.url;
     if (!embedUrl) return res.status(400).json({ error: 'No URL' });
 
+    console.log("1. Request received for:", embedUrl);
     let browser;
     try {
         browser = await puppeteer.launch({ 
@@ -18,49 +18,58 @@ app.get('/get-stream', async (req, res) => {
             args: ['--no-sandbox', '--disable-setuid-sandbox'] 
         });
         const page = await browser.newPage();
-        let foundLink = null;
+        await page.setViewport({ width: 800, height: 600 });
+        
+        let rawVideoLink = null;
 
-        // Listen to all network requests
         page.on('request', request => {
             const url = request.url();
-            // Look for m3u8 or the specific provider domain
+            // SMART FILTER: Catch the real stream, ignore the ads/wrapper
             if ((url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) && !url.includes('streamapi.cc')) {
-                if (!foundLink) {
-                    foundLink = url;
-                    console.log("!!! TARGET DETECTED:", foundLink);
+                if (!rawVideoLink) {
+                    rawVideoLink = url;
+                    console.log("4. FOUND REAL LINK:", rawVideoLink);
                 }
             }
         });
 
-        console.log("Navigating to target...");
-        await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-        
-        // Wait an extra 10 seconds for the video to actually fire up
-        await new Promise(r => setTimeout(r, 10000));
+        console.log("2. Injecting Iframe into neutral page...");
+        await page.goto('https://example.com', { waitUntil: 'domcontentloaded' });
+        await page.evaluate((url) => {
+            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px; border:none;"></iframe>`;
+        }, embedUrl);
 
-        await browser.close();
+        await new Promise(r => setTimeout(r, 5000)); 
 
-        if (foundLink) {
-            res.json({ success: true, url: foundLink });
-        } else {
-            console.log("--- Failed: No link captured ---");
-            res.json({ success: false });
+        console.log("3. Clearing ads with multi-clicks...");
+        const clicks = [[400, 300], [410, 310], [390, 290]];
+        for (const [x, y] of clicks) {
+            await page.mouse.click(x, y);
+            await new Promise(r => setTimeout(r, 1500));
         }
-
+        
+        // Final wait for the network to catch the .m3u8
+        await new Promise(r => setTimeout(r, 8000)); 
+        await browser.close();
+        
+        res.json({ success: !!rawVideoLink, url: rawVideoLink });
     } catch (error) {
-        console.error("Scraper Crash:", error.message);
+        console.error("ERROR:", error);
         if (browser) await browser.close();
         res.status(500).json({ success: false });
     }
 });
 
-// Proxy route stays the same
+// PROXY ROUTE: This stops the "spinning" on your HTML
 app.get('/proxy', async (req, res) => {
     const streamUrl = req.query.url;
     try {
         const response = await axios.get(streamUrl, {
             responseType: 'stream',
-            headers: { 'Referer': 'https://embed.streamapi.cc/', 'User-Agent': 'Mozilla/5.0' }
+            headers: { 
+                'Referer': 'https://embed.streamapi.cc/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
         });
         res.set('Access-Control-Allow-Origin', '*');
         response.data.pipe(res);
