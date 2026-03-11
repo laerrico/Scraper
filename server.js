@@ -7,6 +7,7 @@ const app = express();
 app.use(cors());
 
 app.get('/get-stream', async (req, res) => {
+    console.log("--- New Scraping Request ---");
     const embedUrl = req.query.url;
     if (!embedUrl) return res.status(400).json({ error: 'No URL' });
 
@@ -14,47 +15,46 @@ app.get('/get-stream', async (req, res) => {
     try {
         browser = await puppeteer.launch({ 
             headless: 'new', 
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'] 
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
         });
         const page = await browser.newPage();
-        
-        // Disguise as a real browser to prevent "Direct Access" blocks
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        let foundLink = null;
 
-        let found = false;
-        
-        // INTERCEPT REQUESTS IMMEDIATELY
+        // Listen to all network requests
         page.on('request', request => {
             const url = request.url();
+            // Look for m3u8 or the specific provider domain
             if ((url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) && !url.includes('streamapi.cc')) {
-                if (!found) {
-                    found = true;
-                    console.log("!!! TARGET FOUND:", url);
-                    res.json({ success: true, url: url });
-                    browser.close(); // Close immediately to save time
+                if (!foundLink) {
+                    foundLink = url;
+                    console.log("!!! TARGET DETECTED:", foundLink);
                 }
             }
         });
 
-        await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        console.log("Navigating to target...");
+        await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
         
-        // Simulate a click just in case it's needed to trigger the network
-        await page.mouse.click(400, 300);
-        
-        // Fallback timer if nothing is found
-        setTimeout(async () => {
-            if (!found) {
-                await browser.close();
-                res.json({ success: false });
-            }
-        }, 15000);
+        // Wait an extra 10 seconds for the video to actually fire up
+        await new Promise(r => setTimeout(r, 10000));
+
+        await browser.close();
+
+        if (foundLink) {
+            res.json({ success: true, url: foundLink });
+        } else {
+            console.log("--- Failed: No link captured ---");
+            res.json({ success: false });
+        }
 
     } catch (error) {
+        console.error("Scraper Crash:", error.message);
         if (browser) await browser.close();
         res.status(500).json({ success: false });
     }
 });
 
+// Proxy route stays the same
 app.get('/proxy', async (req, res) => {
     const streamUrl = req.query.url;
     try {
