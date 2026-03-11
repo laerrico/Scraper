@@ -1,12 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
-const axios = require('axios');
 
 const app = express();
 app.use(cors());
 
-// --- SCRAPER ---
 app.get('/get-stream', async (req, res) => {
     const embedUrl = req.query.url;
     if (!embedUrl) return res.status(400).json({ error: 'No URL' });
@@ -51,49 +49,4 @@ app.get('/get-stream', async (req, res) => {
     }
 });
 
-// --- DEEP PROXY ---
-app.get('/proxy', async (req, res) => {
-    const streamUrl = req.query.url;
-    if (!streamUrl) return res.status(400).send('No URL');
-
-    const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Referer': 'https://embed.streamapi.cc/',
-        'Origin': 'https://embed.streamapi.cc'
-    };
-
-    try {
-        const isManifest = streamUrl.includes('.m3u8');
-        const response = await axios.get(streamUrl, {
-            responseType: isManifest ? 'text' : 'stream',
-            headers: headers,
-            timeout: 10000
-        });
-
-        res.set('Access-Control-Allow-Origin', '*');
-
-        if (isManifest) {
-            let manifest = response.data;
-            const baseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/') + 1);
-            
-            // This is the magic: Rewrite all internal links to go back through this proxy
-            const rewritten = manifest.replace(/^(?!#)(.*)$/gm, (match) => {
-                if (!match.trim()) return match;
-                let absoluteUrl = match.startsWith('http') ? match : new URL(match, baseUrl).href;
-                return `${req.protocol}://${req.get('host')}/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-            });
-
-            res.set('Content-Type', 'application/vnd.apple.mpegurl');
-            return res.send(rewritten);
-        }
-
-        // For video segments (.ts)
-        res.set('Content-Type', 'video/MP2T');
-        response.data.pipe(res);
-
-    } catch (e) {
-        res.status(403).send('Proxy Error');
-    }
-});
-
-app.listen(process.env.PORT || 3000, () => console.log('Deep Proxy Live!'));
+app.listen(process.env.PORT || 3000, () => console.log('Scraper Mode Live!'));
