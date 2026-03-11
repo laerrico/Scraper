@@ -18,10 +18,7 @@ app.get('/get-stream', async (req, res) => {
             args: ['--no-sandbox', '--disable-setuid-sandbox'] 
         });
         
-        console.log("3. Browser launched! Opening page...");
         const page = await browser.newPage();
-        
-        // Lock the screen size so we know exactly where the center is
         await page.setViewport({ width: 800, height: 600 });
         let rawVideoLink = null;
 
@@ -35,16 +32,25 @@ app.get('/get-stream', async (req, res) => {
         console.log("5. Navigating to embed URL...");
         await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         
-        console.log("6. Clicking Play and waiting for video to load...");
-        await page.mouse.click(400, 300); // Clicks dead center of the player
-        await new Promise(r => setTimeout(r, 6000)); // Waits 6 seconds for the stream to pop up
+        // Wait 3 seconds for the player UI to actually render
+        await new Promise(r => setTimeout(r, 3000)); 
+        console.log("Page Title is:", await page.title());
+
+        console.log("6. Spamming clicks to bypass invisible ads...");
+        for (let i = 0; i < 3; i++) {
+            await page.mouse.click(400, 300); // Click center
+            await new Promise(r => setTimeout(r, 1500)); // Wait for ad to trigger
+        }
+        
+        // Wait 6 seconds for the actual video stream to fire up
+        await new Promise(r => setTimeout(r, 6000)); 
         
         console.log("7. Closing browser...");
         await browser.close();
         
         res.json({ success: !!rawVideoLink, url: rawVideoLink });
     } catch (error) {
-        console.error("CRITICAL SCRAPER ERROR:", error); 
+        console.error("CRITICAL ERROR:", error); 
         res.status(500).json({ success: false, error: 'Scraper failed' });
     }
 });
