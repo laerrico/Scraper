@@ -20,9 +20,8 @@ app.get('/get-stream', async (req, res) => {
 
         page.on('request', request => {
             const url = request.url();
-            // Listen for the m3u8 or the specific provider domain
             if (url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) {
-                if (!url.includes('streamapi.cc')) { // Ignore the wrapper
+                if (!url.includes('streamapi.cc')) { 
                     rawVideoLink = url;
                     console.log("4. REAL VIDEO LINK FOUND:", rawVideoLink);
                 }
@@ -33,23 +32,26 @@ app.get('/get-stream', async (req, res) => {
         
         console.log("3. Injecting Iframe...");
         await page.evaluate((url) => {
-            document.body.innerHTML = `<iframe id="stream-frame" src="${url}" style="width:800px; height:600px;"></iframe>`;
+            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px;"></iframe>`;
         }, embedUrl);
 
-        // Wait for the iframe to appear
-        await page.waitForSelector('#stream-frame');
-        const frameElement = await page.$('#stream-frame');
-        const frame = await frameElement.contentFrame();
+        await new Promise(r => setTimeout(r, 6000)); 
 
-        console.log("5. Waiting for player and clicking INSIDE iframe...");
-        await new Promise(r => setTimeout(r, 5000)); 
+        console.log("5. Searching for the video frame to click...");
+        // This finds the embed frame even if the ID is blocked
+        const frames = page.frames();
+        const videoFrame = frames.find(f => f.url().includes('streamapi.cc'));
 
-        // We click the frame's coordinates, not the page's
-        await frame.mouse.click(400, 300); 
-        await new Promise(r => setTimeout(r, 2000));
-        await frame.mouse.click(400, 300);
+        if (videoFrame) {
+            console.log("6. Clicking INSIDE the detected frame...");
+            await videoFrame.mouse.click(400, 300);
+            await new Promise(r => setTimeout(r, 2000));
+            await videoFrame.mouse.click(400, 300);
+        } else {
+            console.log("6. Warning: Could not find video frame, clicking main page instead.");
+            await page.mouse.click(400, 300);
+        }
         
-        // Give it 10 seconds to fire off the network request
         await new Promise(r => setTimeout(r, 10000)); 
         await browser.close();
         
