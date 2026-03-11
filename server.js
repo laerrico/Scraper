@@ -20,6 +20,7 @@ app.get('/get-stream', async (req, res) => {
 
         page.on('request', request => {
             const url = request.url();
+            // Broader check for the stream file
             if (url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) {
                 if (!url.includes('streamapi.cc')) { 
                     rawVideoLink = url;
@@ -32,27 +33,19 @@ app.get('/get-stream', async (req, res) => {
         
         console.log("3. Injecting Iframe...");
         await page.evaluate((url) => {
-            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px;"></iframe>`;
+            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px; position:absolute; top:0; left:0; border:none;"></iframe>`;
         }, embedUrl);
 
         await new Promise(r => setTimeout(r, 6000)); 
 
-        console.log("5. Searching for the video frame to click...");
-        // This finds the embed frame even if the ID is blocked
-        const frames = page.frames();
-        const videoFrame = frames.find(f => f.url().includes('streamapi.cc'));
-
-        if (videoFrame) {
-            console.log("6. Clicking INSIDE the detected frame...");
-            await videoFrame.mouse.click(400, 300);
-            await new Promise(r => setTimeout(r, 2000));
-            await videoFrame.mouse.click(400, 300);
-        } else {
-            console.log("6. Warning: Could not find video frame, clicking main page instead.");
-            await page.mouse.click(400, 300);
-        }
+        console.log("5. Clicking center of page (where iframe is)...");
+        // We use page.mouse directly to avoid the 'undefined' frame error
+        await page.mouse.click(400, 300);
+        await new Promise(r => setTimeout(r, 2000));
+        await page.mouse.click(400, 300);
         
-        await new Promise(r => setTimeout(r, 10000)); 
+        // Wait longer to ensure the network request triggers
+        await new Promise(r => setTimeout(r, 12000)); 
         await browser.close();
         
         res.json({ success: !!rawVideoLink, url: rawVideoLink });
