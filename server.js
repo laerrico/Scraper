@@ -6,7 +6,7 @@ const axios = require('axios');
 const app = express();
 app.use(cors());
 
-// --- SCRAPER ROUTE ---
+// --- SCRAPER: Finds the hidden link ---
 app.get('/get-stream', async (req, res) => {
     const embedUrl = req.query.url;
     if (!embedUrl) return res.status(400).json({ error: 'No URL' });
@@ -14,8 +14,13 @@ app.get('/get-stream', async (req, res) => {
     console.log("1. Scraping:", embedUrl);
     let browser;
     try {
-        browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+        browser = await puppeteer.launch({ 
+            headless: 'new', 
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'] 
+        });
         const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        
         let rawVideoLink = null;
 
         page.on('request', request => {
@@ -24,14 +29,14 @@ app.get('/get-stream', async (req, res) => {
                 if (!rawVideoLink) {
                     rawVideoLink = url;
                     console.log("4. FOUND LINK:", rawVideoLink);
-                    res.json({ success: true, url: rawVideoLink });
+                    if (!res.headersSent) res.json({ success: true, url: rawVideoLink });
                 }
             }
         });
 
         await page.goto('https://example.com', { waitUntil: 'domcontentloaded' });
         await page.evaluate((url) => {
-            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px;"></iframe>`;
+            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px; border:none;"></iframe>`;
         }, embedUrl);
 
         await new Promise(r => setTimeout(r, 6000)); 
@@ -47,28 +52,36 @@ app.get('/get-stream', async (req, res) => {
     }
 });
 
-// --- THE SMART RECURSIVE PROXY ---
+// --- PROXY: Bypasses 403 blocks ---
 app.get('/proxy', async (req, res) => {
     const streamUrl = req.query.url;
     if (!streamUrl) return res.status(400).send('No URL');
 
+    const browserHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Referer': 'https://embed.streamapi.cc/',
+        'Origin': 'https://embed.streamapi.cc',
+        'Accept': '*/*',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-Dest': 'empty'
+    };
+
     try {
+        const isManifest = streamUrl.includes('.m3u8');
         const response = await axios.get(streamUrl, {
-            responseType: streamUrl.includes('.m3u8') ? 'text' : 'stream',
-            headers: { 
-                'Referer': 'https://embed.streamapi.cc/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            responseType: isManifest ? 'text' : 'stream',
+            headers: browserHeaders,
+            timeout: 15000
         });
 
         res.set('Access-Control-Allow-Origin', '*');
 
-        // If it's a playlist (.m3u8), we need to REWRITE it
-        if (streamUrl.includes('.m3u8')) {
+        if (isManifest) {
             let manifest = response.data;
             const baseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/') + 1);
 
-            // This regex finds every link in the manifest and wraps it in our proxy
+            // REWRITE LOGIC: Forces every sub-link through this proxy
             const rewrittenManifest = manifest.replace(/^(?!#)(.*)$/gm, (match) => {
                 if (!match.trim()) return match;
                 let absoluteUrl = match.startsWith('http') ? match : new URL(match, baseUrl).href;
@@ -79,13 +92,13 @@ app.get('/proxy', async (req, res) => {
             return res.send(rewrittenManifest);
         }
 
-        // If it's a video segment (.ts), just pipe the data
+        // Handle video segments (.ts)
         res.set('Content-Type', 'video/MP2T');
         response.data.pipe(res);
 
     } catch (e) {
-        console.error("Proxy Error:", e.message);
-        res.status(500).send('Proxy Error');
+        console.error("403 Blocked by Provider:", streamUrl);
+        res.status(403).send('Access Denied by Stream Provider');
     }
 });
 
