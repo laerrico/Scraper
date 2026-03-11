@@ -12,22 +12,14 @@ app.get('/get-stream', async (req, res) => {
     console.log("1. Request received for:", embedUrl);
 
     try {
-        console.log("2. Launching browser...");
         const browser = await puppeteer.launch({ 
             headless: 'new', 
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'] 
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
         });
         
         const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.setViewport({ width: 800, height: 600 });
         
-        // THE MAGIC FIX: Fake the website we "came from"
-        await page.setExtraHTTPHeaders({ 
-            'Referer': 'https://google.com/',
-            'Origin': 'https://google.com/'
-        });
-
         let rawVideoLink = null;
 
         page.on('request', request => {
@@ -37,27 +29,32 @@ app.get('/get-stream', async (req, res) => {
             }
         });
 
-        console.log("5. Navigating to embed URL...");
-        await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        console.log("2. Loading neutral parent page...");
+        // Go to a blank dummy site first
+        await page.goto('https://example.com', { waitUntil: 'domcontentloaded' });
         
-        await new Promise(r => setTimeout(r, 3000)); 
-        console.log("Page Title is:", await page.title());
-        
-        console.log("6. Spamming clicks...");
+        console.log("3. Injecting embed as an iframe...");
+        // Force the embed into an iframe to bypass "Direct Access" blocks
+        await page.evaluate((url) => {
+            document.body.innerHTML = `<iframe src="${url}" style="width:800px; height:600px; border:none; position:absolute; top:0; left:0;"></iframe>`;
+        }, embedUrl);
+
+        // Wait for the iframe and video player to load
+        await new Promise(r => setTimeout(r, 5000)); 
+
+        console.log("5. Spamming clicks inside the iframe...");
         for (let i = 0; i < 3; i++) {
-            await page.mouse.click(400, 300);
+            await page.mouse.click(400, 300); // Clicks the play button
             await new Promise(r => setTimeout(r, 1500));
         }
         
-        await new Promise(r => setTimeout(r, 6000)); 
-        
-        console.log("7. Closing browser...");
+        await new Promise(r => setTimeout(r, 5000)); 
         await browser.close();
         
         res.json({ success: !!rawVideoLink, url: rawVideoLink });
     } catch (error) {
-        console.error("CRITICAL ERROR:", error); 
-        res.status(500).json({ success: false, error: 'Scraper failed' });
+        console.error("ERROR:", error); 
+        res.status(500).json({ success: false });
     }
 });
 
