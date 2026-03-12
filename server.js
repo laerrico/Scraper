@@ -13,6 +13,8 @@ app.get('/get-stream', async (req, res) => {
     if (!embedUrl) return res.status(400).json({ error: 'No URL' });
 
     let browser;
+    let responded = false; // <-- single flag guards ALL responses
+
     try {
         browser = await puppeteer.launch({ 
             headless: 'new', 
@@ -21,14 +23,12 @@ app.get('/get-stream', async (req, res) => {
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
         
-        let rawVideoLink = null;
         page.on('request', request => {
             const url = request.url();
+            if (responded) return; // <-- stop if already responded
             if ((url.includes('.m3u8') || url.includes('sanwalyaarpya.com')) && !url.includes('streamapi.cc')) {
-                if (!rawVideoLink) {
-                    rawVideoLink = url;
-                    res.json({ success: true, url: rawVideoLink });
-                }
+                responded = true;
+                res.json({ success: true, url });
             }
         });
 
@@ -39,17 +39,18 @@ app.get('/get-stream', async (req, res) => {
 
         await new Promise(r => setTimeout(r, 8000)); 
         await page.mouse.click(0, 0); 
-        
-        setTimeout(async () => { if (browser) await browser.close(); }, 12000);
 
-        // If nothing found after waiting, send failure
-        if (!rawVideoLink) {
+        // Send failure only if nothing was found
+        if (!responded) {
+            responded = true;
             res.json({ success: false, error: 'No stream found' });
         }
 
+        setTimeout(async () => { if (browser) await browser.close(); }, 4000);
+
     } catch (e) {
         if (browser) await browser.close();
-        if (!res.headersSent) res.status(500).json({ success: false });
+        if (!responded) res.status(500).json({ success: false, error: e.message });
     }
 });
 
